@@ -1,19 +1,24 @@
 package tencent
 
 import (
-	"os"
-	"github.com/qor/oss"
-	"io"
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/polpo-studio/oss"
+	"hash"
+	"io"
 	"io/ioutil"
 	"net/http"
-	"path/filepath"
-	"time"
-	"errors"
-	"strings"
-	"bytes"
-	"regexp"
 	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
 )
 
 var _ oss.StorageInterface = (*Client)(nil)
@@ -73,7 +78,7 @@ func (client Client) GetStream(path string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil,errors.New("get file fail")
+		return nil, errors.New("get file fail")
 	}
 	return resp.Body, nil
 }
@@ -177,4 +182,66 @@ func (client Client) authorization(req *http.Request) string {
 		client.Config.AccessID, signTime, signTime, getHeadKeys(req.Header), getParamsKeys(req.URL.RawQuery), signature)
 
 	return authStr
+}
+
+func (client Client) GetUploadPolicy(prefix string, maxSize int32, expireInSeconds int32) (policy *oss.UploadPolicy, err error) {
+	c := client.Config
+	now := time.Now().Unix()
+	expireEnd := now + int64(expireInSeconds)
+
+	var tokenExpire = time.Unix(expireEnd, 0).UTC().Format("2006-01-02T15:04:05Z")
+
+	//create post policy json
+	var cond oss.CondConfig
+	cond.Expiration = tokenExpire
+
+	var startWithCondition []interface{}
+	startWithCondition = append(startWithCondition, "starts-with")
+	startWithCondition = append(startWithCondition, "$key")
+	startWithCondition = append(startWithCondition, prefix)
+
+	cond.Conditions = append(cond.Conditions, startWithCondition)
+
+	var sizeCondition []interface{}
+	sizeCondition = append(sizeCondition, "content-length-range")
+	sizeCondition = append(sizeCondition, 0)
+	sizeCondition = append(sizeCondition, maxSize)
+
+	cond.Conditions = append(cond.Conditions, sizeCondition)
+
+	//https://cloud.tencent.com/document/product/436/14690
+
+	var extraCondition1 = make(map[string]string)
+	extraCondition1["q-sign-algorithm"] = "sha1"
+	cond.Conditions = append(cond.Conditions, extraCondition1)
+
+	var extraCondition2 = make(map[string]string)
+	extraCondition2["q-ak"] = c.AccessID
+	cond.Conditions = append(cond.Conditions, extraCondition2)
+
+	var extraCondition3 = make(map[string]string)
+	extraCondition3["q-sign-time"] = fmt.Sprintf("%d;%d", now, expireEnd)
+	cond.Conditions = append(cond.Conditions, extraCondition3)
+
+	//calculate signature
+	result, _ := json.Marshal(cond)
+	policyStr := base64.StdEncoding.EncodeToString(result)
+
+	h := hmac.New(func() hash.Hash { return sha1.New() }, []byte(c.AccessKey))
+	_, err = io.WriteString(h, policyStr)
+
+	if err != nil {
+		return nil, err
+	}
+
+	signedStr := base64.StdEncoding.EncodeToString(h.Sum(nil))
+
+	return &oss.UploadPolicy{
+		AccessKeyId: client.Config.AccessID,
+		Host:        client.Config.Endpoint,
+		Expire:      expireEnd,
+		Signature:   signedStr,
+		Directory:   prefix,
+		Policy:      policyStr,
+	}, nil
 }

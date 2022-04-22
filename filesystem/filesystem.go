@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/qor/oss"
+	"github.com/polpo-studio/oss"
 )
 
 // FileSystem file system storage
@@ -106,4 +106,8 @@ func (fileSystem FileSystem) GetEndpoint() string {
 // GetURL get public accessible URL
 func (fileSystem FileSystem) GetURL(path string) (url string, err error) {
 	return path, nil
+}
+
+func (fileSystem FileSystem) GetUploadPolicy(prefix string, maxSize int32, expireInSeconds int32) (policy *oss.UploadPolicy, err error) {
+	panic("implement me")
 }

@@ -18,7 +18,7 @@ type StorageInterface interface {
 }
 ```
 
-Here's an example of how to use [QOR OSS](https://github.com/qor/oss) with S3. After initializing the s3 storage, The functions in the interface are available.
+Here's an example of how to use [QOR OSS](https://github.com/polpo-studio/oss) with S3. After initializing the s3 storage, The functions in the interface are available.
 
 ```go
 import (

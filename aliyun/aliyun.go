@@ -1,6 +1,11 @@
 package aliyun
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
+	"encoding/json"
+	"hash"
 	"io"
 	"io/ioutil"
 	"net/url"
@@ -11,7 +16,7 @@ import (
 	"time"
 
 	aliyun "github.com/aliyun/aliyun-oss-go-sdk/oss"
-	"github.com/qor/oss"
+	"github.com/polpo-studio/oss"
 )
 
 // Client Aliyun storage
@@ -162,4 +167,52 @@ func (client Client) GetURL(path string) (url string, err error) {
 		return client.Bucket.SignURL(client.ToRelativePath(path), aliyun.HTTPGet, 60*60) // 1 hour
 	}
 	return path, nil
+}
+
+func (client Client) GetUploadPolicy(prefix string, maxSize int32, expireInSeconds int32) (policy *oss.UploadPolicy, err error) {
+	now := time.Now().Unix()
+	expireEnd := now + int64(expireInSeconds)
+
+	var tokenExpire = time.Unix(expireEnd, 0).UTC().Format("2006-01-02T15:04:05Z")
+
+	//create post policy json
+	var cond oss.CondConfig
+	cond.Expiration = tokenExpire
+
+	var startWithCondition []interface{}
+	startWithCondition = append(startWithCondition, "starts-with")
+	startWithCondition = append(startWithCondition, "$key")
+	startWithCondition = append(startWithCondition, prefix)
+
+	cond.Conditions = append(cond.Conditions, startWithCondition)
+
+	var sizeCondition []interface{}
+	sizeCondition = append(sizeCondition, "content-length-range")
+	sizeCondition = append(sizeCondition, 0)
+	sizeCondition = append(sizeCondition, maxSize)
+
+	cond.Conditions = append(cond.Conditions, sizeCondition)
+
+	//calculate signature
+	result, _ := json.Marshal(cond)
+	policyStr := base64.StdEncoding.EncodeToString(result)
+
+	h := hmac.New(func() hash.Hash { return sha1.New() }, []byte(client.Config.AccessKey))
+
+	_, err = io.WriteString(h, policyStr)
+
+	if err != nil {
+		return nil, err
+	}
+
+	signedStr := base64.StdEncoding.EncodeToString(h.Sum(nil))
+
+	return &oss.UploadPolicy{
+		AccessKeyId: client.Config.AccessID,
+		Host:        client.Config.Endpoint,
+		Expire:      expireEnd,
+		Signature:   signedStr,
+		Directory:   prefix,
+		Policy:      policyStr,
+	}, nil
 }

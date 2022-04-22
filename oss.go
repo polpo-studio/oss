@@ -15,6 +15,7 @@ type StorageInterface interface {
 	List(path string) ([]*Object, error)
 	GetURL(path string) (string, error)
 	GetEndpoint() string
+	GetUploadPolicy(prefix string, maxSize int32, expireInSeconds int32) (policy *UploadPolicy, err error)
 }
 
 // Object content object
@@ -23,6 +24,20 @@ type Object struct {
 	Name             string
 	LastModified     *time.Time
 	StorageInterface StorageInterface
+}
+
+type CondConfig struct {
+	Expiration string        `json:"expiration"`
+	Conditions []interface{} `json:"conditions"`
+}
+
+type UploadPolicy struct {
+	AccessKeyId string `json:"access_key_id"`
+	Host        string `json:"host"`
+	Expire      int64  `json:"expire"`
+	Signature   string `json:"signature"`
+	Policy      string `json:"policy"`
+	Directory   string `json:"dir"`
 }
 
 // Get retrieve object's content
